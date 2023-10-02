@@ -1,0 +1,41 @@
+<div class="container-fluid bg-light d-flex justify-content-center" style="min-height: 90vh">
+  <div class="container mt-5">
+      <h1>{{ input_data }}'s Products List</h1>
+
+      <div class="container mt-5">
+          <form class="mb-3" hx-post="/deneme" hx-target="#result1" hx-swap="outerHTML" method="post">
+              <div class="mb-3">
+                  <label for="title" class="form-label">Product Title:</label>
+                  <input type="text" class="form-control" id="title" name="title" autocomplete="off">
+                  <!-- <input type="text" class="form-control" id="title" name="title" autocomplete="off" required> -->
+              </div>
+              <div class="mb-3">
+                  <label for="url" class="form-label">Product URL:</label>
+                  <input type="url" class="form-control" id="url" name="url" autocomplete="off">
+                  <!-- <input type="url" class="form-control" id="url" name="url" autocomplete="off" required> -->
+              </div>
+              <div class="mb-3">
+                <label for="price" class="form-label">Product Price:</label>
+                <input type="text" class="form-control" id="price" name="price" autocomplete="off">
+                <!-- <input type="text" class="form-control" id="price" name="price" autocomplete="off" required> -->
+            </div>
+              <button type="submit" class="btn btn-primary">Add Product</button>
+              <i id="spinner" class="htmx-indicator fas fa-spinner fa-spin" style="font-size:24px;"></i>
+          </form>
+
+          <div id="result1">
+
+            {% for product in products %}
+              {% with title=product.title, client_id=product.link %}
+                {% include "accordion.html" %}
+              {% endwith %}
+            {% endfor %}
+
+            
+        </div>
+      </div>
+  </div>
+</div>
+
+
+

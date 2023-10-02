@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    
+    <title>Pazar Team</title>
+    
+</head>
+<body>
+
+    <div id="result">
+        <div class="container-fluid bg-info d-flex align-items-center justify-content-center" style="height: 100vh">
+            <div class="container-lg">
+
+                <div class="d-flex justify-content-center align-items-center mb-5">
+                    <h1>Pazar Team</h1>
+                </div>
+                
+                <h2>You don't need to visit websites dozens of times for the product price you are following. Provide the product link and tell us the current price so we can figure out which website element we need to track and let you know the changes.</h2>
+                <div class="d-flex justify-content-center align-items-center mt-5">
+                    <i class="fas fa-2xl fa-circle-down"></i>
+                </div>
+                
+            </div>
+        </div>
+
+    
+        <div class="container-fluid bg-secondary d-flex align-items-center justify-content-center" style="height: 90vh">
+            <div class="container">
+                <form id="myForm" hx-post="/process" hx-target="#result" hx-trigger="submit" class="p-4 shadow rounded bg-white">
+                    <h2 class="text-center mb-4">Just enter your email address and start. No passwords no verification codes</h2>
+                    <div class="form-group">
+                        <!-- <input type="email" class="form-control form-control-lg" id="inputData" name="inputData" required> -->
+                        <input type="email" class="form-control form-control-lg" id="inputData" name="inputData">
+                        <div class=" text-secondary mx-2 mt-1">*We do not send any verification code or nonsense e-mails or share someone else. We only do this when there is a change in price. Trust me.</div>
+
+                    </div>
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-primary btn-block mt-3 btn-lg" >Start</button>
+                    </div>
+                    
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="container-fluid bg-dark text-white d-flex justify-content-center align-items-center" style="height: 10vh">
+        <div class="text-center">
+            Feel free to contact with me <a href="mailto:umut.pazarteam@gmail.com" class="text-white">umut.pazarteam@gmail.com</a>.
+        </div>
+    </div>
+   
+</body>
+</html>
