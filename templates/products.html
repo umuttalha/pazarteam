@@ -5,7 +5,7 @@
       <div class="container mt-5">
           <form class="mb-3" hx-post="/deneme" hx-target="#result1" hx-swap="outerHTML" method="post">
               <div class="mb-3">
-                  <label for="title" class="form-label">Product Title:</label>
+                  <label for="title" class="form-label">Product Title: <span class="text-secondary">(you can choose whatever you want)</span></label>
                   <input type="text" class="form-control" id="title" name="title" autocomplete="off">
                   <!-- <input type="text" class="form-control" id="title" name="title" autocomplete="off" required> -->
               </div>
@@ -16,6 +16,7 @@
               </div>
               <div class="mb-3">
                 <label for="price" class="form-label">Product Price:</label>
+                <span class="text-secondary"> Pay attention to dot ( . ) and comma ( , ). Don't put any currency symbol ( $ , £ , € , ₺)</span>
                 <input type="text" class="form-control" id="price" name="price" autocomplete="off">
                 <!-- <input type="text" class="form-control" id="price" name="price" autocomplete="off" required> -->
             </div>
