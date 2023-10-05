@@ -7,7 +7,7 @@ from flask import (
     session,
     jsonify,
     url_for,
-    Response
+    Response,
 )
 from flask_mail import Mail, Message
 import os
@@ -16,10 +16,9 @@ from flask_sqlalchemy import SQLAlchemy
 from enum import Enum
 import secrets
 import random
-from datetime import timedelta
+from datetime import timedelta, datetime
 from urllib.parse import urlparse
 import time
-import signal
 
 from bs4 import BeautifulSoup
 from lxml import etree
@@ -35,16 +34,14 @@ from selenium.webdriver.support import expected_conditions as EC
 chrome_driver_path = "./chromedriver"
 options = Options()
 options.add_argument("--headless")
-options.add_argument(
-    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-)
+options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 options.add_argument("--enable-javascript")
 
 load_dotenv()
 
 app = Flask(__name__, static_folder="static", static_url_path="")
-app.secret_key = secrets.token_urlsafe(16)
-app.permanent_session_lifetime = timedelta(minutes=30)
+# app.secret_key = secrets.token_urlsafe(16)
+# app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 
 mail_settings = {
     "MAIL_SERVER": "smtp.gmail.com",
@@ -55,7 +52,6 @@ mail_settings = {
     "MAIL_PASSWORD": os.environ["EMAIL_PASSWORD"],
 }
 
-
 app.config.update(mail_settings)
 mail = Mail(app)
 
@@ -63,14 +59,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
 db = SQLAlchemy(app)
 
 
-class TierEnum(Enum):
-    FREE = "Free"
-    PREMIUM = "Premium"
-
-
 class User(db.Model):
     email = db.Column(db.String, primary_key=True, unique=True, nullable=False)
-    tier = db.Column(db.Enum(TierEnum), nullable=False)
+    tier = db.Column(db.Integer, nullable=False)
 
 
 class Product(db.Model):
@@ -79,7 +70,41 @@ class Product(db.Model):
     price = db.Column(db.String, nullable=False)
 
 
+class WebsitesLevels(db.Model):
+    link = db.Column(db.String,  primary_key=True, nullable=False)
+    level = db.Column(db.Integer, nullable=False, default=1) 
 
+
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    link = db.Column(db.String, nullable=False)
+    price = db.Column(db.String, nullable=False)
+
+
+class_list_names = {"money", "price", "prc-dsc", "fiyat", "amount", "pricing", "prc"}
+
+alert_string=""" 
+
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    Unsuccessful. The price or link was entered incorrectly, or website has disabled access for this type of work.
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
+"""
+
+alert_string2=""" 
+
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    Unsuccessful. Website has disabled access for this type of work.
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
+"""
+
+def suanki_tarihi_ve_saati_al():
+    suanki_zaman = datetime.now()
+    suanki_tarih_ve_saat = suanki_zaman.strftime("%A, %B %d, %Y %H:%M:%S")
+    return suanki_tarih_ve_saat
 
 def change_price_mail(receiver_mail, website_link):
     msg = Message(
@@ -94,76 +119,83 @@ def change_price_mail(receiver_mail, website_link):
     )
     mail.send(msg)
 
+def selenium_scrape(url, price):
+    elements_check_selenium = []
+    parent_list = []
+    money_price_elements = []
 
-def generate_client_id():
-    return str(random.randint(1, 999999))
+    driver = webdriver.Chrome(executable_path=chrome_driver_path, options=options)
 
+    driver.get(url)
+
+    # time.sleep(1)
+    WebDriverWait(driver, 5).until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price))
+
+    page_content = driver.page_source
+
+    driver.quit()
+
+    soup = BeautifulSoup(page_content, "html.parser")
+
+    elements1 = soup.find_all(string=re.compile(price))
+
+    for element in elements1:
+        parent = element.find_parent()
+
+        if parent and parent.name in {"script", "style"}:
+            continue
+
+        elements_check_selenium.append(element)
+        parent_list.append(parent)
+
+        parent_classes = set(parent.get("class", []))
+        if class_list_names & parent_classes:
+            money_price_elements.append(element)
+
+    return {
+        "elementler": elements_check_selenium,
+        "scrap_type": "level 2",
+        "parent_list": parent_list,
+        "money_price_elements": money_price_elements,
+    }
 
 def verileri_al(url, price):
     try:
-        response = requests.get(url, timeout=5)
-        print(response.text)
+        response = requests.get(url, timeout=3)
     except requests.Timeout:
-        return {"elementler": elements_check, "scrap_type": "request"}
-    except requests.RequestException as e:
-        return {"elementler": elements_check, "scrap_type": "request"}
+        return selenium_scrape(url, price)
+    except requests.RequestException:
+        return selenium_scrape(url, price)
 
-    
-    
     soup = BeautifulSoup(response.content, "html.parser")
-
 
     elements = soup.find_all(string=re.compile(price))
     elements_check = []
+    parent_list = []
+    money_price_elements = []
 
     for element in elements:
         parent = element.find_parent()
 
-        if parent and parent.name == "script":
-            continue
-
-        if parent and parent.name == "style":
+        if parent and parent.name in {"script", "style"}:
             continue
 
         elements_check.append(element)
+        parent_list.append(parent)
 
-        # print(f'Tag: {parent if parent else None}, Sınıf: {class_list}, İçerik: {element}')
-
-    elements_check_selenium = []
+        parent_classes = set(parent.get("class", []))
+        if class_list_names & parent_classes:
+            money_price_elements.append(element)
 
     if elements_check == []:
-        driver = webdriver.Chrome(executable_path=chrome_driver_path, options=options)
+        return selenium_scrape(url, price)
 
-        driver.get(url)
-
-        time.sleep(1)
-
-        # wait = WebDriverWait(driver, 10)
-
-        # price_element = wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price))
-
-        page_content = driver.page_source
-
-        driver.quit()
-
-        soup = BeautifulSoup(page_content, "html.parser")
-
-        elements1 = soup.find_all(string=re.compile(price))
-
-        for element in elements1:
-            parent = element.find_parent()
-
-            if parent and parent.name == "script":
-                continue
-
-            if parent and parent.name == "style":
-                continue
-
-            elements_check_selenium.append(element)
-
-        return {"elementler": elements_check_selenium, "scrap_type": "level 2"}
-
-    return {"elementler": elements_check, "scrap_type": "level 1"}
+    return {
+        "elementler": elements_check,
+        "scrap_type": "level 1",
+        "parent_list": parent_list,
+        "money_price_elements": money_price_elements,
+    }
 
 
 @app.route("/")
@@ -175,31 +207,34 @@ def home():
 def process():
     input_data = request.form.get("inputData")
 
-    # Kullanıcıya özgü bir oturum kimliği oluşturun
-    session_token = secrets.token_urlsafe(16)
+    existing_user = User.query.filter_by(email=input_data).first()
 
-    # Kullanıcı oturum bilgilerini saklayın (örneğin, ürün linki ve input data)
-    session[session_token] = {"input_data": input_data}
+    if not existing_user:
+        new_user = User(email=input_data, tier=0)
+        db.session.add(new_user)
+        db.session.commit()
 
-    return redirect(f"/products/{session_token}")
+    response = make_response(render_template("products.html", input_data=input_data))
+    response.set_cookie("user_email", input_data)
+
+    return response
+
+def check_banned_site(url):
+    parsed_url = urlparse(url)
+
+    netloc_parts = parsed_url.netloc.split(".")
+
+    if len(netloc_parts) > 1:
+        main_domain = ".".join(netloc_parts[-2:])
+    else:
+        main_domain = netloc_parts[0]
+
+    if main_domain == "aliexpress.com":
+        return "false"
+    else:
+        return "true"
 
 
-@app.route("/products/<session_token>")
-def products(session_token):
-    # Kullanıcının oturumunu kontrol edin
-    user_data = session.get(session_token)
-
-    # print(user_data)
-
-    if not user_data:
-        return redirect("/")
-
-    # Veritabanına kaydetmek istediğiniz bilgileri alın
-    input_data = user_data.get("input_data")
-
-    # Burada veritabanına kaydetme işlemlerini yapabilirsiniz (örneğin SQLAlchemy kullanabilirsiniz)
-
-    return render_template("products.html", input_data=input_data)
 
 
 @app.route("/deneme", methods=["POST"])
@@ -208,27 +243,46 @@ def deneme():
     url = request.form.get("url")
     price = request.form.get("price")
 
-    elemet_list = verileri_al(url, price)
+    cevap = check_banned_site(url)
 
-    print(elemet_list["scrap_type"])
-    print(elemet_list["elementler"])
+    if (cevap=="false"):
+        return alert_string2
+    
+    else:
+        user_email = request.cookies.get("user_email")
 
-    client_id = "id" + generate_client_id()
+        elemet_list = verileri_al(url, price)
 
-    return render_template(
-        "accordion.html",
-        title=title,
-        url=url,
-        price=price,
-        client_id=client_id,
-        scrap_type=elemet_list["scrap_type"],
-        elementler=elemet_list["elementler"][0],
-    )
+        suanki_tarih_ve_saat = suanki_tarihi_ve_saati_al()
+
+        # print(elemet_list["elementler"])
+        # print(elemet_list["parent_list"])
+
+        element_list = { "money_price_elements": (elemet_list["money_price_elements"],), "elementler": (elemet_list["elementler"],),}
+
+        try:
+            result = element_list.get("elementler", element_list.get("money_price_elements", [None]))[0][0]
+        except:
+            return alert_string
 
 
-#     # print(request.__dict__)
+        print(result)
 
-#     # user_ip = request.remote_addr
+        client_id = "id" + str(random.randint(1, 999999))
+
+        if elemet_list["elementler"] == []:
+            return alert_string
+
+        return render_template(
+            "accordion.html",
+            title=title,
+            url=url,
+            price=price,
+            client_id=client_id,
+            result=result,
+            scrap_type=elemet_list["scrap_type"],
+            suanki_tarih_ve_saat=suanki_tarih_ve_saat,
+        )
 
 
 if __name__ == "__main__":

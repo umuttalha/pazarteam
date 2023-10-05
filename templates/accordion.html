@@ -9,7 +9,7 @@
         aria-expanded="true"
         aria-controls="{{client_id}}"
       >
-        {{scrap_type}} // {{title}}
+       {{title}} - {{scrap_type}} 
       </button>
     </h2>
     <div
@@ -20,7 +20,8 @@
     >
 
 
-      {{elementler}}
+      
+      
 
       <ul class="list-group">
 
@@ -30,15 +31,16 @@
             <div class="row align-items-center">
               <div class="col">
 
+                <div class="date">First check:  {{suanki_tarih_ve_saat}}</div>
+                <div class="date">Last check:  {{suanki_tarih_ve_saat}}</div>
+                <div class="date">Next check:  {{suanki_tarih_ve_saat}}</div>
+                <h5><span class="price badge bg-warning">{{result}}</span></h5>
+
+                <!-- <hr>
+
                 <div class="date">2023-01-01 10:30:00</div>
                 <div class="date">2023-04-01 10:30:00</div>
-                <h5><span class="price badge bg-warning">100 money</span></h5>
-
-                <hr>
-
-                <div class="date">2023-01-01 10:30:00</div>
-                <div class="date">2023-04-01 10:30:00</div>
-                <h5><span class="price badge bg-secondary">120 money</span></h5>
+                <h5><span class="price badge bg-secondary">120 money</span></h5> -->
 
               </div>
             </div>
