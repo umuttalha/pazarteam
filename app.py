@@ -1,29 +1,18 @@
-from flask import (
-    Flask,
-    render_template,
-    request,
-    redirect,
-    make_response,
-    session,
-    jsonify,
-    url_for,
-    Response,
-)
+from flask import Flask, render_template, request, make_response, session, Response
 from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
-from enum import Enum
-import secrets
 import random
 from datetime import timedelta, datetime
 from urllib.parse import urlparse
-import time
 
 from bs4 import BeautifulSoup
-from lxml import etree
 import requests
 import re
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -39,9 +28,15 @@ options.add_argument("--enable-javascript")
 
 load_dotenv()
 
+
+# def my_function():
+#     print(f"Function executed for User:")
+
+
 app = Flask(__name__, static_folder="static", static_url_path="")
-# app.secret_key = secrets.token_urlsafe(16)
-# app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+# scheduler = BackgroundScheduler(daemon=True)
+# scheduler.add_job(my_function, CronTrigger(second='*'))
+# scheduler.start()
 
 mail_settings = {
     "MAIL_SERVER": "smtp.gmail.com",
@@ -58,27 +53,67 @@ mail = Mail(app)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
 db = SQLAlchemy(app)
 
-
 class User(db.Model):
     email = db.Column(db.String, primary_key=True, unique=True, nullable=False)
     tier = db.Column(db.Integer, nullable=False)
+    products = db.relationship('UserProduct', backref='user', lazy=True)
 
 
 class Product(db.Model):
     link = db.Column(db.String, primary_key=True, nullable=False)
     title = db.Column(db.String, nullable=False)
     price = db.Column(db.String, nullable=False)
+    user_products = db.relationship('UserProduct', backref='product', lazy=True)
 
 
-class WebsitesLevels(db.Model):
-    link = db.Column(db.String,  primary_key=True, nullable=False)
-    level = db.Column(db.Integer, nullable=False, default=1) 
+class UserProduct(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_email = db.Column(db.String, db.ForeignKey('user.email'), nullable=False)
+    product_link = db.Column(db.String, db.ForeignKey('product.link'), nullable=False)
+    first_fetch_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_fetch_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    next_fetch_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
-class Report(db.Model):
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    link = db.Column(db.String, nullable=False)
-    price = db.Column(db.String, nullable=False)
+def add_user(email):
+    existing_user = User.query.filter_by(email=email).first()
+    if not existing_user:
+        new_user = User(email=email, tier=0)
+        db.session.add(new_user)
+        db.session.commit()
+
+
+def add_product(link, title, price):
+    new_product = Product(link=link, title=title, price=price)
+    db.session.add(new_product)
+    db.session.commit()
+
+def add_user_product(user_email, product_link):
+
+    first_fetch_date = datetime.utcnow()
+
+    last_fetch_date = first_fetch_date
+    next_fetch_date= first_fetch_date
+
+    new_user_product = UserProduct(
+        user_email=user_email,
+        product_link=product_link,
+        first_fetch_date=first_fetch_date,
+        last_fetch_date=last_fetch_date,
+        next_fetch_date=next_fetch_date
+    )
+
+    db.session.add(new_user_product)
+    db.session.commit()
+
+def update_user_product(user_email, product_link):
+    user_product = UserProduct.query.filter_by(user_email=user_email, product_link=product_link).first()
+
+    new_fetch_date = datetime.utcnow()
+
+    user_product.last_fetch_date = new_fetch_date
+    db.session.commit()
+
 
 
 class_list_names = {"money", "price", "prc-dsc", "fiyat", "amount", "pricing", "prc"}
@@ -128,7 +163,6 @@ def selenium_scrape(url, price):
 
     driver.get(url)
 
-    # time.sleep(1)
     WebDriverWait(driver, 5).until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price))
 
     page_content = driver.page_source
@@ -158,6 +192,22 @@ def selenium_scrape(url, price):
         "parent_list": parent_list,
         "money_price_elements": money_price_elements,
     }
+
+def check_banned_site(url):
+    parsed_url = urlparse(url)
+
+    netloc_parts = parsed_url.netloc.split(".")
+
+    if len(netloc_parts) > 1:
+        main_domain = ".".join(netloc_parts[-2:])
+    else:
+        main_domain = netloc_parts[0]
+
+    if main_domain == "aliexpress.com":
+        return "false"
+    else:
+        return "true"
+
 
 def verileri_al(url, price):
     try:
@@ -207,33 +257,12 @@ def home():
 def process():
     input_data = request.form.get("inputData")
 
-    existing_user = User.query.filter_by(email=input_data).first()
-
-    if not existing_user:
-        new_user = User(email=input_data, tier=0)
-        db.session.add(new_user)
-        db.session.commit()
+    add_user(input_data)
 
     response = make_response(render_template("products.html", input_data=input_data))
     response.set_cookie("user_email", input_data)
 
     return response
-
-def check_banned_site(url):
-    parsed_url = urlparse(url)
-
-    netloc_parts = parsed_url.netloc.split(".")
-
-    if len(netloc_parts) > 1:
-        main_domain = ".".join(netloc_parts[-2:])
-    else:
-        main_domain = netloc_parts[0]
-
-    if main_domain == "aliexpress.com":
-        return "false"
-    else:
-        return "true"
-
 
 
 
@@ -243,6 +272,7 @@ def deneme():
     url = request.form.get("url")
     price = request.form.get("price")
 
+    
     cevap = check_banned_site(url)
 
     if (cevap=="false"):
@@ -254,9 +284,6 @@ def deneme():
         elemet_list = verileri_al(url, price)
 
         suanki_tarih_ve_saat = suanki_tarihi_ve_saati_al()
-
-        # print(elemet_list["elementler"])
-        # print(elemet_list["parent_list"])
 
         element_list = { "money_price_elements": (elemet_list["money_price_elements"],), "elementler": (elemet_list["elementler"],),}
 
@@ -272,6 +299,10 @@ def deneme():
 
         if elemet_list["elementler"] == []:
             return alert_string
+        
+        # add_product(url, title, price)
+        # add_user_product(user_email, url)
+
 
         return render_template(
             "accordion.html",
