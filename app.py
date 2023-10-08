@@ -3,13 +3,13 @@ from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
-import random
 from datetime import timedelta, datetime
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 import requests
 import re
+import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -23,20 +23,70 @@ from selenium.webdriver.support import expected_conditions as EC
 chrome_driver_path = "./chromedriver"
 options = Options()
 options.add_argument("--headless")
-options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+options.add_argument(
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+)
 options.add_argument("--enable-javascript")
 
 load_dotenv()
 
+def my_function():
+    current_utc_time = datetime.utcnow().replace(second=0, microsecond=0)
 
-# def my_function():
-#     print(f"Function executed for User:")
+    matching_products = Product.query.filter(
+        Product.next_fetch_date == current_utc_time
+    ).all()
+
+    for product in matching_products:
+        print(product.url)
+
+        try:
+            response = requests.get(product.url, timeout=3)
+            soup = BeautifulSoup(response.content, "html.parser")
+
+        except requests.Timeout:
+            driver = webdriver.Chrome(
+                executable_path=chrome_driver_path, options=options
+            )
+
+            driver.get(product.url)
+
+            # WebDriverWait(driver, 5).until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price))
+            time.sleep(2)
+
+            page_content = driver.page_source
+
+            driver.quit()
+
+            soup = BeautifulSoup(page_content, "html.parser")
+
+    if product.parent_tag in soup:
+        product_to_update = Product.query.filter_by(id=product.id).first()
+
+        if product_to_update:
+            product_to_update.last_fetch_date = datetime.utcnow().replace(
+                second=0, microsecond=0
+            )
+
+            product_to_update.next_fetch_date = datetime.utcnow().replace(
+                second=0, microsecond=0
+            ) + timedelta(hours=6)
+
+            db.session.commit()
+
+    else:
+        change_price_mail(product.user_email, product.product_link, product.title)
+
+        product_to_delete = Product.query.filter_by(id=product.id).first()
+
+        db.session.delete(product_to_delete)
+        db.session.commit()
 
 
 app = Flask(__name__, static_folder="static", static_url_path="")
-# scheduler = BackgroundScheduler(daemon=True)
-# scheduler.add_job(my_function, CronTrigger(second='*'))
-# scheduler.start()
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(my_function, CronTrigger(minute="*"))
+scheduler.start()
 
 mail_settings = {
     "MAIL_SERVER": "smtp.gmail.com",
@@ -53,72 +103,66 @@ mail = Mail(app)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
 db = SQLAlchemy(app)
 
+
 class User(db.Model):
     email = db.Column(db.String, primary_key=True, unique=True, nullable=False)
     tier = db.Column(db.Integer, nullable=False)
-    products = db.relationship('UserProduct', backref='user', lazy=True)
+    products = db.relationship("Product", backref="user", lazy=True)
 
 
 class Product(db.Model):
-    link = db.Column(db.String, primary_key=True, nullable=False)
-    title = db.Column(db.String, nullable=False)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_email = db.Column(db.String, db.ForeignKey("user.email"), nullable=False)
+    title = db.Column(db.String, nullable=True)
     price = db.Column(db.String, nullable=False)
-    user_products = db.relationship('UserProduct', backref='product', lazy=True)
+    parent_tag = db.Column(db.String, nullable=False)
+    product_link = db.Column(db.String, nullable=False, unique=False)
+    kota = db.Column(db.Integer)
+
+    first_fetch_date = db.Column(
+        db.DateTime,
+        default=datetime.utcnow().replace(second=0, microsecond=0),
+        nullable=False,
+    )
+    last_fetch_date = db.Column(
+        db.DateTime,
+        default=datetime.utcnow().replace(second=0, microsecond=0),
+        nullable=False,
+    )
+    next_fetch_date = db.Column(
+        db.DateTime,
+        default=datetime.utcnow().replace(second=0, microsecond=0) + timedelta(hours=6),
+        nullable=False,
+    )
 
 
-class UserProduct(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_email = db.Column(db.String, db.ForeignKey('user.email'), nullable=False)
-    product_link = db.Column(db.String, db.ForeignKey('product.link'), nullable=False)
-    first_fetch_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    last_fetch_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    next_fetch_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-
-def add_user(email):
+def add_user(email, tier):
     existing_user = User.query.filter_by(email=email).first()
-    if not existing_user:
-        new_user = User(email=email, tier=0)
+
+    if existing_user:
+        pass
+    else:
+        new_user = User(email=email, tier=tier)
         db.session.add(new_user)
         db.session.commit()
 
 
-def add_product(link, title, price):
-    new_product = Product(link=link, title=title, price=price)
+def add_product(user_email, title, parent_tag, price, product_link):
+    new_product = Product(
+        user_email=user_email,
+        parent_tag=parent_tag,
+        title=title,
+        kota=12,
+        price=price,
+        product_link=product_link,
+    )
     db.session.add(new_product)
     db.session.commit()
-
-def add_user_product(user_email, product_link):
-
-    first_fetch_date = datetime.utcnow()
-
-    last_fetch_date = first_fetch_date
-    next_fetch_date= first_fetch_date
-
-    new_user_product = UserProduct(
-        user_email=user_email,
-        product_link=product_link,
-        first_fetch_date=first_fetch_date,
-        last_fetch_date=last_fetch_date,
-        next_fetch_date=next_fetch_date
-    )
-
-    db.session.add(new_user_product)
-    db.session.commit()
-
-def update_user_product(user_email, product_link):
-    user_product = UserProduct.query.filter_by(user_email=user_email, product_link=product_link).first()
-
-    new_fetch_date = datetime.utcnow()
-
-    user_product.last_fetch_date = new_fetch_date
-    db.session.commit()
-
 
 
 class_list_names = {"money", "price", "prc-dsc", "fiyat", "amount", "pricing", "prc"}
 
-alert_string=""" 
+alert_string = """ 
 
 <div class="alert alert-danger alert-dismissible fade show" role="alert">
     Unsuccessful. The price or link was entered incorrectly, or website has disabled access for this type of work.
@@ -127,7 +171,7 @@ alert_string="""
 
 """
 
-alert_string2=""" 
+alert_string2 = """ 
 
 <div class="alert alert-danger alert-dismissible fade show" role="alert">
     Unsuccessful. Website has disabled access for this type of work.
@@ -136,12 +180,14 @@ alert_string2="""
 
 """
 
+
 def suanki_tarihi_ve_saati_al():
     suanki_zaman = datetime.now()
     suanki_tarih_ve_saat = suanki_zaman.strftime("%A, %B %d, %Y %H:%M:%S")
     return suanki_tarih_ve_saat
 
-def change_price_mail(receiver_mail, website_link):
+
+def change_price_mail(receiver_mail, website_link, title):
     msg = Message(
         subject="Price Changed",
         sender=app.config.get("MAIL_USERNAME"),
@@ -149,21 +195,23 @@ def change_price_mail(receiver_mail, website_link):
         body=f"""
     Hi!
                     
-    The price of the product you are following has changed. Here is the product link {website_link}
+    The price of the product ({title} ) you are following has changed. Here is the product link {website_link}
     """,
     )
     mail.send(msg)
 
+
 def selenium_scrape(url, price):
-    elements_check_selenium = []
-    parent_list = []
+    elements_check = []
     money_price_elements = []
 
     driver = webdriver.Chrome(executable_path=chrome_driver_path, options=options)
 
     driver.get(url)
 
-    WebDriverWait(driver, 5).until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price))
+    WebDriverWait(driver, 5).until(
+        EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price)
+    )
 
     page_content = driver.page_source
 
@@ -171,27 +219,33 @@ def selenium_scrape(url, price):
 
     soup = BeautifulSoup(page_content, "html.parser")
 
-    elements1 = soup.find_all(string=re.compile(price))
+    fiyatlar = soup.find_all(string=re.compile(price))
 
-    for element in elements1:
-        parent = element.find_parent()
+    for fiyat in fiyatlar:
+        parent = fiyat.find_parent()
 
         if parent and parent.name in {"script", "style"}:
             continue
 
-        elements_check_selenium.append(element)
-        parent_list.append(parent)
+        elements_check.append({"fiyat": fiyat, "parent": parent})
 
         parent_classes = set(parent.get("class", []))
         if class_list_names & parent_classes:
-            money_price_elements.append(element)
+            money_price_elements.append({"fiyat": fiyat, "parent": parent})
+
+    try:
+        result = money_price_elements[0]
+    except:
+        try:
+            result = elements_check[0]
+        except:
+            result = ""
 
     return {
-        "elementler": elements_check_selenium,
-        "scrap_type": "level 2",
-        "parent_list": parent_list,
-        "money_price_elements": money_price_elements,
+        "result": result,
+        "scrap_type": 2,
     }
+
 
 def check_banned_site(url):
     parsed_url = urlparse(url)
@@ -219,32 +273,35 @@ def verileri_al(url, price):
 
     soup = BeautifulSoup(response.content, "html.parser")
 
-    elements = soup.find_all(string=re.compile(price))
+    fiyatlar = soup.find_all(string=re.compile(price))
     elements_check = []
-    parent_list = []
     money_price_elements = []
 
-    for element in elements:
-        parent = element.find_parent()
+    for fiyat in fiyatlar:
+        parent = fiyat.find_parent()
 
         if parent and parent.name in {"script", "style"}:
             continue
 
-        elements_check.append(element)
-        parent_list.append(parent)
+        print(fiyat)
+
+        elements_check.append({"fiyat": fiyat, "parent": parent})
 
         parent_classes = set(parent.get("class", []))
         if class_list_names & parent_classes:
-            money_price_elements.append(element)
+            money_price_elements.append({"fiyat": fiyat, "parent": parent})
 
-    if elements_check == []:
-        return selenium_scrape(url, price)
+    try:
+        result = money_price_elements[0]
+    except:
+        try:
+            result = elements_check[0]
+        except:
+            return selenium_scrape(url, price)
 
     return {
-        "elementler": elements_check,
-        "scrap_type": "level 1",
-        "parent_list": parent_list,
-        "money_price_elements": money_price_elements,
+        "result": result,
+        "scrap_type": 1,
     }
 
 
@@ -257,13 +314,16 @@ def home():
 def process():
     input_data = request.form.get("inputData")
 
-    add_user(input_data)
+    add_user(input_data, 1)
 
-    response = make_response(render_template("products.html", input_data=input_data))
+    products = Product.query.filter_by(user_email=input_data).all()
+
+    response = make_response(
+        render_template("products.html", products=products, input_data=input_data)
+    )
     response.set_cookie("user_email", input_data)
 
     return response
-
 
 
 @app.route("/deneme", methods=["POST"])
@@ -272,48 +332,32 @@ def deneme():
     url = request.form.get("url")
     price = request.form.get("price")
 
-    
     cevap = check_banned_site(url)
 
-    if (cevap=="false"):
+    if cevap == "false":
         return alert_string2
-    
+
     else:
         user_email = request.cookies.get("user_email")
 
         elemet_list = verileri_al(url, price)
 
-        suanki_tarih_ve_saat = suanki_tarihi_ve_saati_al()
+        print(elemet_list["result"])
 
-        element_list = { "money_price_elements": (elemet_list["money_price_elements"],), "elementler": (elemet_list["elementler"],),}
-
-        try:
-            result = element_list.get("elementler", element_list.get("money_price_elements", [None]))[0][0]
-        except:
+        if elemet_list["result"] == "":
             return alert_string
 
-
-        print(result)
-
-        client_id = "id" + str(random.randint(1, 999999))
-
-        if elemet_list["elementler"] == []:
-            return alert_string
-        
-        # add_product(url, title, price)
-        # add_user_product(user_email, url)
-
-
-        return render_template(
-            "accordion.html",
-            title=title,
-            url=url,
-            price=price,
-            client_id=client_id,
-            result=result,
-            scrap_type=elemet_list["scrap_type"],
-            suanki_tarih_ve_saat=suanki_tarih_ve_saat,
+        add_product(
+            user_email,
+            title,
+            str(elemet_list["result"]["parent"]),
+            elemet_list["result"]["fiyat"],
+            url,
         )
+
+        products = Product.query.filter_by(user_email=user_email).all()
+
+        return render_template("accordion.html", products=products,input_data=user_email)
 
 
 if __name__ == "__main__":

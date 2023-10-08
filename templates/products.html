@@ -1,39 +1,59 @@
+<div id="result1">
+
+
 <div class="container-fluid bg-light d-flex justify-content-center" style="min-height: 90vh">
   <div class="container mt-5">
       <h1>{{ input_data }}'s Products List</h1>
 
       <div class="container mt-5">
+
+
+
           <form class="mb-3" hx-post="/deneme" hx-target="#result1" hx-swap="outerHTML" method="post">
               <div class="mb-3">
                   <label for="title" class="form-label">Product Title: <span class="text-secondary">(you can choose whatever you want)</span></label>
-                  <input type="text" class="form-control" id="title" name="title" autocomplete="off">
-                  <!-- <input type="text" class="form-control" id="title" name="title" autocomplete="off" required> -->
+                  <input type="text" class="form-control" id="title" name="title" autocomplete="off" required>
               </div>
               <div class="mb-3">
                   <label for="url" class="form-label">Product URL:</label>
-                  <input type="url" class="form-control" id="url" name="url" autocomplete="off">
-                  <!-- <input type="url" class="form-control" id="url" name="url" autocomplete="off" required> -->
+                  <input type="url" class="form-control" id="url" name="url" autocomplete="off" required>
               </div>
               <div class="mb-3">
                 <label for="price" class="form-label">Product Price:</label>
                 <span class="text-secondary"> Pay attention to dot ( . ) and comma ( , ). Don't put any currency symbol ( $, £, €, ₺)</span>
-                <input type="text" class="form-control" id="price" name="price" autocomplete="off">
-                <!-- <input type="text" class="form-control" id="price" name="price" autocomplete="off" required> -->
+                <input type="text" class="form-control" id="price" name="price" autocomplete="off" required>
             </div>
               <button type="submit" class="btn btn-primary">Add Product</button>
               <i id="spinner" class="htmx-indicator fas fa-spinner fa-spin" style="font-size:24px;"></i>
           </form>
 
-          <div id="result1">
+          <div class="accordion" id="accordionExample">
+
 
             {% for product in products %}
-              {% with title=product.title, client_id=product.link %}
-                {% include "accordion.html" %}
-              {% endwith %}
-            {% endfor %}
+            <div class="accordion-item">
+              <h2 class="accordion-header" id="heading{{ loop.index }}">
+                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}" aria-expanded="true" aria-controls="collapse{{ loop.index }}">
+                  {{ product.title }} - {{ product.scrap_type }}
+                </button>
+              </h2>
+              <div id="collapse{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="heading{{ loop.index }}" data-bs-parent="#accordionExample">
+                <div class="accordion-body">
+                  <div class="date">First check:  {{ product.first_fetch_date }}</div>
+                  <div class="date">Last check:  {{ product.last_fetch_date }}</div>
+                  <div class="date">Next check:  {{ product.suanki_tarih_ve_saat }}</div>
+                  <h5><span class="price badge bg-warning">{{ product.price }}</span></h5>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
 
+
+
+          </div>
             
         </div>
+
       </div>
   </div>
 </div>
