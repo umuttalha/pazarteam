@@ -3,13 +3,13 @@ from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
-from datetime import timedelta, datetime
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 import requests
 import re
 import time
+import threading
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -19,6 +19,9 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+
+
+my_function_lock = threading.Lock()
 
 chrome_driver_path = "./chromedriver"
 options = Options()
@@ -30,62 +33,73 @@ options.add_argument("--enable-javascript")
 
 load_dotenv()
 
+
 def my_function():
-    current_utc_time = datetime.utcnow().replace(second=0, microsecond=0)
+    with app.app_context():
+        with my_function_lock:
+            current_utc_time = int(time.time())
 
-    matching_products = Product.query.filter(
-        Product.next_fetch_date == current_utc_time
-    ).all()
+            matching_products = Product.query.filter(
+                current_utc_time > Product.next_fetch_date
+            ).all()
 
-    for product in matching_products:
-        print(product.url)
+            print(current_utc_time)
+            print(matching_products)
 
-        try:
-            response = requests.get(product.url, timeout=3)
-            soup = BeautifulSoup(response.content, "html.parser")
+            if matching_products ==[]:
+                return 
+            else:
+                for product in matching_products:
 
-        except requests.Timeout:
-            driver = webdriver.Chrome(
-                executable_path=chrome_driver_path, options=options
-            )
+                    print(product.level)
 
-            driver.get(product.url)
+                    if product.level==1:
+                        response = requests.get(product.product_link, timeout=3)
+                        soup = BeautifulSoup(response.content, "html.parser")
 
-            # WebDriverWait(driver, 5).until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price))
-            time.sleep(2)
+                    else:
 
-            page_content = driver.page_source
+                        driver = webdriver.Chrome( executable_path=chrome_driver_path, options=options)
+                        driver.get(product.product_link)
 
-            driver.quit()
+                        # WebDriverWait(driver, 5).until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), price))
+                        time.sleep(2)
 
-            soup = BeautifulSoup(page_content, "html.parser")
+                        page_content = driver.page_source
 
-    if product.parent_tag in soup:
-        product_to_update = Product.query.filter_by(id=product.id).first()
+                        driver.quit()
 
-        if product_to_update:
-            product_to_update.last_fetch_date = datetime.utcnow().replace(
-                second=0, microsecond=0
-            )
+                        soup = BeautifulSoup(page_content, "html.parser")
 
-            product_to_update.next_fetch_date = datetime.utcnow().replace(
-                second=0, microsecond=0
-            ) + timedelta(hours=6)
+                        print(soup)
 
-            db.session.commit()
 
-    else:
-        change_price_mail(product.user_email, product.product_link, product.title)
+                    python_degisik= product.parent_tag.replace('"', '').replace("'", '')
 
-        product_to_delete = Product.query.filter_by(id=product.id).first()
+                    if product.parent_tag in str(soup) or python_degisik in str(soup):
 
-        db.session.delete(product_to_delete)
-        db.session.commit()
+                        product_to_update = Product.query.filter_by(id=product.id).first()
+
+                        if product_to_update:
+
+                            product_to_update.last_fetch_date = int(time.time())
+                            product_to_update.next_fetch_date = int(time.time()) + 6 * 3600
+                            db.session.commit()
+
+                    else:
+
+                        # change_price_mail(product.user_email, product.product_link, product.title)
+
+                        product_to_delete = Product.query.filter_by(id=product.id).first()
+
+                        if product_to_delete:
+                            db.session.delete(product_to_delete)
+                            db.session.commit()
 
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 scheduler = BackgroundScheduler(daemon=True)
-scheduler.add_job(my_function, CronTrigger(minute="*"))
+scheduler.add_job(my_function, CronTrigger(second="*/30"))
 scheduler.start()
 
 mail_settings = {
@@ -118,23 +132,11 @@ class Product(db.Model):
     parent_tag = db.Column(db.String, nullable=False)
     product_link = db.Column(db.String, nullable=False, unique=False)
     kota = db.Column(db.Integer)
+    level = db.Column(db.Integer)
 
-    first_fetch_date = db.Column(
-        db.DateTime,
-        default=datetime.utcnow().replace(second=0, microsecond=0),
-        nullable=False,
-    )
-    last_fetch_date = db.Column(
-        db.DateTime,
-        default=datetime.utcnow().replace(second=0, microsecond=0),
-        nullable=False,
-    )
-    next_fetch_date = db.Column(
-        db.DateTime,
-        default=datetime.utcnow().replace(second=0, microsecond=0) + timedelta(hours=6),
-        nullable=False,
-    )
-
+    first_fetch_date = db.Column(db.Integer, default=int(time.time()), nullable=False)
+    last_fetch_date = db.Column(db.Integer, default=int(time.time()), nullable=False)
+    next_fetch_date = db.Column(db.Integer, default=int(time.time()) + 6 * 3600, nullable=False)
 
 def add_user(email, tier):
     existing_user = User.query.filter_by(email=email).first()
@@ -146,8 +148,7 @@ def add_user(email, tier):
         db.session.add(new_user)
         db.session.commit()
 
-
-def add_product(user_email, title, parent_tag, price, product_link):
+def add_product(user_email, title, parent_tag, price, product_link,level):
     new_product = Product(
         user_email=user_email,
         parent_tag=parent_tag,
@@ -155,6 +156,7 @@ def add_product(user_email, title, parent_tag, price, product_link):
         kota=12,
         price=price,
         product_link=product_link,
+        level=level
     )
     db.session.add(new_product)
     db.session.commit()
@@ -179,13 +181,6 @@ alert_string2 = """
 </div>
 
 """
-
-
-def suanki_tarihi_ve_saati_al():
-    suanki_zaman = datetime.now()
-    suanki_tarih_ve_saat = suanki_zaman.strftime("%A, %B %d, %Y %H:%M:%S")
-    return suanki_tarih_ve_saat
-
 
 def change_price_mail(receiver_mail, website_link, title):
     msg = Message(
@@ -246,7 +241,6 @@ def selenium_scrape(url, price):
         "scrap_type": 2,
     }
 
-
 def check_banned_site(url):
     parsed_url = urlparse(url)
 
@@ -261,7 +255,6 @@ def check_banned_site(url):
         return "false"
     else:
         return "true"
-
 
 def verileri_al(url, price):
     try:
@@ -282,8 +275,6 @@ def verileri_al(url, price):
 
         if parent and parent.name in {"script", "style"}:
             continue
-
-        print(fiyat)
 
         elements_check.append({"fiyat": fiyat, "parent": parent})
 
@@ -308,7 +299,6 @@ def verileri_al(url, price):
 @app.route("/")
 def home():
     return render_template("home.html")
-
 
 @app.route("/process", methods=["POST"])
 def process():
@@ -342,8 +332,6 @@ def deneme():
 
         elemet_list = verileri_al(url, price)
 
-        print(elemet_list["result"])
-
         if elemet_list["result"] == "":
             return alert_string
 
@@ -353,14 +341,14 @@ def deneme():
             str(elemet_list["result"]["parent"]),
             elemet_list["result"]["fiyat"],
             url,
+            elemet_list["scrap_type"]
         )
 
         products = Product.query.filter_by(user_email=user_email).all()
 
         return render_template("accordion.html", products=products,input_data=user_email)
 
-
 if __name__ == "__main__":
     app.app_context().push()
     db.create_all()
-    app.run(debug=True)
+    app.run()
